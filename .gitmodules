@@ -1,0 +1,6 @@
+[submodule "api/user-service-api"]
+	path = api/user-service-api
+	url = git@github.com:hypertino/user-service-api.git
+[submodule "api/hyper-storage-service-api"]
+	path = api/hyper-storage-service-api
+	url = git@github.com:hypertino/hyper-storage-service-api.git
