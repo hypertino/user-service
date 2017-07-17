@@ -7,6 +7,7 @@ import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.service.control.api.Service
 import com.hypertino.user.api.{UserGet, UserPatch, UsersGet, UsersPost}
+import com.hypertino.user.use.authbasic.{EncryptionsPost, OriginalPassword}
 import com.hypertino.user.use.hyperstorage.{ContentGet, ContentPut}
 import monix.eval.Task
 import monix.execution.Scheduler
@@ -18,13 +19,13 @@ import scala.util.{Failure, Success}
 case class UserServiceConfiguration(keyFields: Map[String, Option[String]])
 
 class UserService (implicit val injector: Injector) extends Service with Injectable {
-  private val log = LoggerFactory.getLogger(getClass)
-  private implicit val scheduler = inject[Scheduler]
-  private val hyperbus = inject[Hyperbus]
-  private val config = UserServiceConfiguration(Map("email" → None))
-  private implicit val so = SerializationOptions.forceOptionalFields
+  protected val log = LoggerFactory.getLogger(getClass)
+  protected implicit val scheduler = inject[Scheduler]
+  protected val hyperbus = inject[Hyperbus]
+  protected val config = UserServiceConfiguration(Map("email" → None))
+  protected implicit val so = SerializationOptions.forceOptionalFields
   import so._
-  private val handlers = hyperbus.subscribe(this, log)
+  protected val handlers = hyperbus.subscribe(this, log)
 
   log.info("UserService started")
 
@@ -75,19 +76,21 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
           } map { lst ⇒
             val success = lst.forall(_._1.isSuccess)
             if (success) {
-              hyperbus
-                .ask(ContentPut(hyperStorageUserPath(userId), request.body))
-                .onErrorRestart(3)
-                .materialize
-                .map {
-                  case Success(Created(_)) ⇒
-                    Created(userIdBody, location=HRL(UserGet.location, Obj.from("user_id" → userId)))
+              encryptPassword(request.body.content).flatMap { userBody ⇒
+                hyperbus
+                  .ask(ContentPut(hyperStorageUserPath(userId), DynamicBody(userBody)))
+                  .onErrorRestart(3)
+                  .materialize
+                  .map {
+                    case Success(Created(_)) ⇒
+                      Created(userIdBody, location=HRL(UserGet.location, Obj.from("user_id" → userId)))
 
-                  case Failure(exception) ⇒
-                    // todo: rollback keys, or use transaction manager
-                    log.error(s"Can't create user '$userId' for $request", exception)
-                    InternalServerError(ErrorBody("db-error", Some("Can't create user")))
-                }
+                    case Failure(exception) ⇒
+                      // todo: rollback keys, or use transaction manager
+                      log.error(s"Can't create user '$userId' for $request", exception)
+                      InternalServerError(ErrorBody("db-error", Some("Can't create user")))
+                  }
+              }
             }
             else {
               val errorId = SeqGenerator.create()
@@ -115,18 +118,31 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     ???
   }
 
-  private def wrapIntoCollection(userId: String)(implicit mcx: MessagingContext): Task[ResponseBase] = {
+  protected def encryptPassword(user: Value)(implicit mcx: MessagingContext): Task[Value] = {
+    if (user.password.isDefined) {
+      hyperbus
+        .ask(EncryptionsPost(OriginalPassword(user.password.toString)))
+        .map{ response ⇒
+          user + Obj.from("password" → response.body.value, "has_password" → true)
+        }
+    }
+    else Task.eval {
+      user
+    }
+  }
+
+  protected def wrapIntoCollection(userId: String)(implicit mcx: MessagingContext): Task[ResponseBase] = {
     getUserByUserId(userId).map {
       case Null ⇒ NotFound(ErrorBody("resource-not-found", Some(s"User $userId is not found")))
       case user: Obj ⇒ Ok(DynamicBody(Lst.from(user)))
     }
   }
 
-  private def identityFields(obj: Value): Map[String, Value] = {
+  protected def identityFields(obj: Value): Map[String, Value] = {
     obj.toMap.filter(kv ⇒ config.keyFields.contains(kv._1)).toMap
   }
 
-  private def getUserByUserId(userId: String)(implicit mcx: MessagingContext): Task[Value] = {
+  protected def getUserByUserId(userId: String)(implicit mcx: MessagingContext): Task[Value] = {
     hyperbus
       .ask(ContentGet(hyperStorageUserPath(userId)))
       .map(_.body.content)
@@ -135,7 +151,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       }
   }
 
-  private def getUsersByIdentityKeys(identityKeys: Map[String, Value])
+  protected def getUsersByIdentityKeys(identityKeys: Map[String, Value])
                                     (implicit mcx: MessagingContext): Task[Map[String, String]] = {
     Task.gatherUnordered {
       identityKeys.map { case (identityKeyType, identityKey) ⇒
@@ -147,7 +163,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     }.map(_.flatten.toMap)
   }
 
-  private def getUserByIdentityKey(identityKey: (String, Value))
+  protected def getUserByIdentityKey(identityKey: (String, Value))
                                   (implicit mcx: MessagingContext): Task[Option[String]] = {
     hyperbus
       .ask(ContentGet(hyperStorageUserPathByIdentityKey(identityKey._1, identityKey._2.toString)))
@@ -160,9 +176,9 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       }
   }
 
-  private def hyperStorageUserPath(userId: String): String = s"/services/user/users/{$userId}"
+  protected def hyperStorageUserPath(userId: String): String = s"/services/user/users/{$userId}"
 
-  private def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = s"/services/user/users-by-$identityType/$identityKey"
+  protected def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = s"/services/user/users-by-$identityType/$identityKey"
 
   def stopService(controlBreak: Boolean): Unit = {
     handlers.foreach(_.cancel())

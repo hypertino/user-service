@@ -28,6 +28,11 @@ lazy val `auth-service` = project in file(".") enablePlugins Raml2Hyperbus setti
         path = "api/hyper-storage-service-api/hyperstorage.raml",
         packageName = "com.hypertino.user.use.hyperstorage",
         isResource = false
+      ),
+      ramlSource(
+        path = "api/auth-basic-service-api/auth-basic.raml",
+        packageName = "com.hypertino.user.use.authbasic",
+        isResource = false
       )
     )
 )

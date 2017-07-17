@@ -2,21 +2,22 @@ package com.hypertino.services.user
 
 import com.hypertino.binders.value.{Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
+import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.service.config.ConfigLoader
 import com.hypertino.user.api.UsersPost
-import com.hypertino.user.use.hyperstorage.{ContentGet, ContentPost, ContentPut}
+import com.hypertino.user.use.authbasic.{EncryptedPassword, EncryptionsPost}
+import com.hypertino.user.use.hyperstorage.{ContentGet, ContentPut}
 import com.typesafe.config.Config
 import monix.eval.Task
 import monix.execution.Scheduler
-import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FlatSpec, Matchers}
 import scaldi.Module
 
 import scala.collection.mutable
 import scala.concurrent.duration._
 
-class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with ScalaFutures with Matchers {
+class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with BeforeAndAfterEach with ScalaFutures with Matchers {
   private implicit val scheduler = monix.execution.Scheduler.Implicits.global
   private implicit val mcx = MessagingContext.empty
   bind [Config] to ConfigLoader()
@@ -25,13 +26,8 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with S
 
   private val hyperbus = inject[Hyperbus]
   private val handlers = hyperbus.subscribe(this)
+  Thread.sleep(500)
   private val service = new UserService()
-
-  override def afterAll() {
-    service.stopService(false)
-    hyperbus.shutdown(10.seconds).runAsync.futureValue
-  }
-
   val hyperStorageContent = mutable.Map[String, Value]()
 
   def onContentPut(implicit request: ContentPut): Task[ResponseBase] = {
@@ -50,6 +46,12 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with S
     }
   }
 
+  def onEncryptionsPost(implicit post: EncryptionsPost): Task[ResponseBase] = Task.eval {
+    Created(EncryptedPassword(
+      post.body.value.reverse
+    ))
+  }
+
   "UserService" should "create new user with email" in {
     hyperbus
       .ask(UsersPost(DynamicBody(Obj.from(
@@ -58,5 +60,34 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with S
       ))))
       .runAsync
       .futureValue shouldBe a[Created[_]]
+  }
+
+  "UserService" should "not create new user with duplicate email" in {
+    hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .failed
+      .futureValue shouldBe a[Conflict[_]]
+  }
+
+
+  override def afterAll() {
+    service.stopService(false)
+    hyperbus.shutdown(10.seconds).runAsync.futureValue
+  }
+
+  override def beforeEach(): Unit = {
+    hyperStorageContent.clear()
   }
 }
