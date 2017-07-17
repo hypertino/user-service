@@ -46,6 +46,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     }
   }
 
+  // todo: encrypt password!?!
   def onUsersPost(implicit request: UsersPost): Task[ResponseBase] = {
     if (request.body.content.user_id.isDefined) {
       Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't set user_id explicitly"))))
@@ -138,13 +139,12 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
                                     (implicit mcx: MessagingContext): Task[Map[String, String]] = {
     Task.gatherUnordered {
       identityKeys.map { case (identityKeyType, identityKey) ⇒
-        hyperbus
-          .ask(ContentGet(hyperStorageUserPathByIdentityKey(identityKeyType, identityKey.toString)))
-          .map { ok ⇒
-            identityKeyType → ok.body.content.user_id.toString
-          }
+        getUserByIdentityKey(identityKeyType, identityKey).map {
+          case Some(userId) ⇒ Some(identityKeyType → userId)
+          case None ⇒ None
+        }
       }
-    } map(_.toMap)
+    }.map(_.flatten.toMap)
   }
 
   private def getUserByIdentityKey(identityKey: (String, Value))
