@@ -2,15 +2,18 @@ package com.hypertino.services.user
 
 import com.hypertino.binders.value.{Lst, Null, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{BadRequest, Conflict, DynamicBody, ErrorBody, MessagingContext, NotFound, Ok, ResponseBase}
+import com.hypertino.hyperbus.model.{BadRequest, Conflict, Created, DynamicBody, ErrorBody, HRL, InternalServerError, MessagingContext, NotFound, Ok, ResponseBase}
 import com.hypertino.hyperbus.serialization.SerializationOptions
+import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.service.control.api.Service
 import com.hypertino.user.api.{UserGet, UserPatch, UsersGet, UsersPost}
-import com.hypertino.user.use.hyperstorage.ContentGet
+import com.hypertino.user.use.hyperstorage.{ContentGet, ContentPut}
 import monix.eval.Task
 import monix.execution.Scheduler
 import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector}
+
+import scala.util.{Failure, Success}
 
 case class UserServiceConfiguration(keyFields: Map[String, Option[String]])
 
@@ -20,6 +23,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   private val hyperbus = inject[Hyperbus]
   private val config = UserServiceConfiguration(Map("email" → None))
   private implicit val so = SerializationOptions.forceOptionalFields
+  import so._
   private val handlers = hyperbus.subscribe(this, log)
 
   log.info("UserService started")
@@ -31,12 +35,11 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       identityFields(request.headers.hrl.query)
         .headOption
         .map { identityKey ⇒
-          getUserByIdentityKey(identityKey)
-            .map { optionUserId ⇒
-              optionUserId.map(wrapIntoCollection)
-            }
+          getUserByIdentityKey(identityKey).flatMap {
+            case Some(userId) ⇒ wrapIntoCollection(userId)
+            case None ⇒ Task.eval(NotFound(ErrorBody("user-not-found", Some(s"$identityKey"))))
+          }
         }
-        .flatten
         .getOrElse {
           Task.eval(NotFound(ErrorBody("identity-key-not-specified", Some("Can't lookup all users"))))
         }
@@ -49,22 +52,53 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     }
     else {
       import com.hypertino.binders.value._
-      getUsersByIdentityKeys(identityFields(request.body.content)).flatMap { existingUsers ⇒
+      val iflds = identityFields(request.body.content)
+      getUsersByIdentityKeys(iflds).flatMap { existingUsers ⇒
         if (existingUsers.nonEmpty) {
           Task.raiseError(Conflict(ErrorBody("duplicate-identity-keys", Some("There is an existing user with identity keys"), extra = existingUsers.toValue)))
         }
         else {
           // todo: we need here a transaction manager
+          val userId = IdGenerator.create()
+          val userIdBody = DynamicBody(Obj.from("user_id" → userId))
 
+          Task.gatherUnordered {
+            iflds.map { ifld ⇒
+              val path = hyperStorageUserPathByIdentityKey(ifld._1, ifld._2.toString)
+              hyperbus
+                .ask(ContentPut(path, userIdBody))
+                .onErrorRestart(3)
+                .materialize
+                .map((_, ifld, path))
+            }
+          } map { lst ⇒
+            val success = lst.forall(_._1.isSuccess)
+            if (success) {
+              hyperbus
+                .ask(ContentPut(hyperStorageUserPath(userId), request.body))
+                .onErrorRestart(3)
+                .materialize
+                .map {
+                  case Success(Created(_)) ⇒
+                    Created(userIdBody, location=HRL(UserGet.location, Obj.from("user_id" → userId)))
 
-
+                  case Failure(exception) ⇒
+                    // todo: rollback keys, or use transaction manager
+                    log.error(s"Can't create user '$userId' for $request", exception)
+                    InternalServerError(ErrorBody("db-error", Some("Can't create user")))
+                }
+            }
+            else {
+              val errorId = SeqGenerator.create()
+              lst.filter(_._1.isFailure).foreach { s ⇒
+                log.error(s"Can't put $userIdBody to ${s._3} #$errorId", s._1.failed.get)
+              }
+              Task.eval(InternalServerError(ErrorBody("db-error", Some("Can't update user identity keys"), errorId=errorId)))
+            }
+          } flatten
         }
       }
     }
-
-    //  1. check if exists with the identity-key's
-    //  2. insert identity-key -> user_id
-    //  3. insert user
   }
 
   def onUserGet(implicit request: UserGet): Task[Ok[DynamicBody]] = {
@@ -91,7 +125,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     obj.toMap.filter(kv ⇒ config.keyFields.contains(kv._1)).toMap
   }
 
-  private def getUserByUserId(userId: String): Task[Value] = {
+  private def getUserByUserId(userId: String)(implicit mcx: MessagingContext): Task[Value] = {
     hyperbus
       .ask(ContentGet(hyperStorageUserPath(userId)))
       .map(_.body.content)
@@ -100,7 +134,8 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       }
   }
 
-  private def getUsersByIdentityKeys(identityKeys: Map[String, Value]): Task[Map[String, String]] = {
+  private def getUsersByIdentityKeys(identityKeys: Map[String, Value])
+                                    (implicit mcx: MessagingContext): Task[Map[String, String]] = {
     Task.gatherUnordered {
       identityKeys.map { case (identityKeyType, identityKey) ⇒
         hyperbus
@@ -112,7 +147,8 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     } map(_.toMap)
   }
 
-  private def getUserByIdentityKey(identityKey: (String, Value)): Task[Option[String]] = {
+  private def getUserByIdentityKey(identityKey: (String, Value))
+                                  (implicit mcx: MessagingContext): Task[Option[String]] = {
     hyperbus
       .ask(ContentGet(hyperStorageUserPathByIdentityKey(identityKey._1, identityKey._2.toString)))
       .map { ok ⇒
