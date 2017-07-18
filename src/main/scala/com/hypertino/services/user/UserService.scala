@@ -7,8 +7,8 @@ import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.service.control.api.Service
 import com.hypertino.user.api.{UserGet, UserPatch, UsersGet, UsersPost}
-import com.hypertino.user.use.authbasic.{EncryptionsPost, OriginalPassword}
-import com.hypertino.user.use.hyperstorage.{ContentGet, ContentPut}
+import com.hypertino.user.apiref.authbasic.{EncryptionsPost, OriginalPassword}
+import com.hypertino.user.apiref.hyperstorage.{ContentGet, ContentPut}
 import monix.eval.Task
 import monix.execution.Scheduler
 import org.slf4j.LoggerFactory

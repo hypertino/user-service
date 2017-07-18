@@ -5,8 +5,8 @@ import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.service.config.ConfigLoader
 import com.hypertino.user.api.UsersPost
-import com.hypertino.user.use.authbasic.{EncryptedPassword, EncryptionsPost}
-import com.hypertino.user.use.hyperstorage.{ContentGet, ContentPut}
+import com.hypertino.user.apiref.authbasic.{EncryptedPassword, EncryptionsPost}
+import com.hypertino.user.apiref.hyperstorage.{ContentGet, ContentPut}
 import com.typesafe.config.Config
 import monix.eval.Task
 import monix.execution.Scheduler
