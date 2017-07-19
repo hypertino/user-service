@@ -14,6 +14,8 @@ import monix.execution.Scheduler
 import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector}
 
+import scala.concurrent.Future
+import scala.concurrent.duration.FiniteDuration
 import scala.util.{Failure, Success}
 
 case class UserServiceConfiguration(keyFields: Map[String, Option[String]])
@@ -180,7 +182,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
   protected def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = s"/services/user/users-by-$identityType/$identityKey"
 
-  def stopService(controlBreak: Boolean): Unit = {
+  override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = Future {
     handlers.foreach(_.cancel())
     log.info("UserService stopped")
   }
