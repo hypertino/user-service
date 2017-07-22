@@ -178,7 +178,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       }
   }
 
-  protected def hyperStorageUserPath(userId: String): String = s"user-service/users/{$userId}"
+  protected def hyperStorageUserPath(userId: String): String = s"user-service/users/$userId"
 
   protected def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = s"user-service/users-by-$identityType/$identityKey"
 
