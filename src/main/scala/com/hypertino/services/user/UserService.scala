@@ -178,9 +178,9 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       }
   }
 
-  protected def hyperStorageUserPath(userId: String): String = s"/services/user/users/{$userId}"
+  protected def hyperStorageUserPath(userId: String): String = s"user-service/users/{$userId}"
 
-  protected def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = s"/services/user/users-by-$identityType/$identityKey"
+  protected def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = s"user-service/users-by-$identityType/$identityKey"
 
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = Future {
     handlers.foreach(_.cancel())
