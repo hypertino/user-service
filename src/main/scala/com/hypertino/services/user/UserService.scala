@@ -80,7 +80,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
             if (success) {
               encryptPassword(request.body.content).flatMap { userBody ⇒
                 hyperbus
-                  .ask(ContentPut(hyperStorageUserPath(userId), DynamicBody(userBody)))
+                  .ask(ContentPut(hyperStorageUserPath(userId), DynamicBody(userBody + userIdBody.content)))
                   .onErrorRestart(3)
                   .materialize
                   .map {

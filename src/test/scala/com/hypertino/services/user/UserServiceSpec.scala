@@ -1,6 +1,6 @@
 package com.hypertino.services.user
 
-import com.hypertino.binders.value.{Obj, Value}
+import com.hypertino.binders.value.{Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.service.config.ConfigLoader
@@ -53,13 +53,15 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
   }
 
   "UserService" should "create new user with email" in {
-    hyperbus
+    val u = hyperbus
       .ask(UsersPost(DynamicBody(Obj.from(
         "email" → "me@example.com",
         "password" → "123456"
       ))))
       .runAsync
-      .futureValue shouldBe a[Created[_]]
+      .futureValue
+    u shouldBe a[Created[_]]
+    u.body.content.user_id shouldBe a[Text]
   }
 
   "UserService" should "not create new user with duplicate email" in {
