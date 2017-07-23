@@ -142,7 +142,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       .map(_.body.content)
       .materialize
       .map {
-        case Success(Ok(userBody: DynamicBody, headers)) ⇒ Ok(DynamicBody(Lst.from(userBody.content)))
+        case Success(user) ⇒ Ok(DynamicBody(Lst.from(user)))
         case Failure(NotFound(_)) ⇒ Ok(DynamicBody(Lst.empty))
       }
   }
