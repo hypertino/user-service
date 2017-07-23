@@ -28,6 +28,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   protected implicit val so = SerializationOptions.forceOptionalFields
   import so._
   protected val handlers = hyperbus.subscribe(this, log)
+  protected final val USER_COLLECTION_BODY_TYPE = "user-collection"
 
   log.info("UserService started")
 
@@ -40,7 +41,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
         .map { identityKey ⇒
           getUserByIdentityKey(identityKey).flatMap {
             case Some(userId) ⇒ wrapIntoCollection(userId)
-            case None ⇒ Task.eval(Ok(DynamicBody(Lst.empty)))
+            case None ⇒ Task.eval(Ok(DynamicBody(Lst.empty, contentType=Some(USER_COLLECTION_BODY_TYPE))))
           }
         }
         .getOrElse {
@@ -142,8 +143,8 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       .map(_.body.content)
       .materialize
       .map {
-        case Success(user) ⇒ Ok(DynamicBody(Lst.from(user)))
-        case Failure(NotFound(_)) ⇒ Ok(DynamicBody(Lst.empty))
+        case Success(user) ⇒ Ok(DynamicBody(Lst.from(user), contentType=Some(USER_COLLECTION_BODY_TYPE)))
+        case Failure(NotFound(_)) ⇒ Ok(DynamicBody(Lst.empty, contentType=Some(USER_COLLECTION_BODY_TYPE)))
       }
   }
 
