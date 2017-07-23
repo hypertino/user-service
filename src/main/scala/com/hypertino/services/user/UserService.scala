@@ -40,7 +40,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
         .map { identityKey ⇒
           getUserByIdentityKey(identityKey).flatMap {
             case Some(userId) ⇒ wrapIntoCollection(userId)
-            case None ⇒ Task.eval(NotFound(ErrorBody("user-not-found", Some(s"$identityKey"))))
+            case None ⇒ Task.eval(Ok(DynamicBody(Lst.empty)))
           }
         }
         .getOrElse {
@@ -108,8 +108,11 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   }
 
   def onUserGet(implicit request: UserGet): Task[Ok[DynamicBody]] = {
-    getUserByUserId(request.userId)
-      .map(user ⇒ Ok(DynamicBody(user)))
+    hyperbus
+      .ask(ContentGet(hyperStorageUserPath(request.userId)))
+      .map {
+        case ok @ Ok(_: DynamicBody, _) ⇒ ok
+      }
   }
 
   def onUserPatch(implicit request: UserPatch): Task[ResponseBase] = {
@@ -134,23 +137,18 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   }
 
   protected def wrapIntoCollection(userId: String)(implicit mcx: MessagingContext): Task[ResponseBase] = {
-    getUserByUserId(userId).map {
-      case Null ⇒ NotFound(ErrorBody("resource-not-found", Some(s"User $userId is not found")))
-      case user: Obj ⇒ Ok(DynamicBody(Lst.from(user)))
-    }
+    hyperbus
+      .ask(ContentGet(hyperStorageUserPath(userId)))
+      .map(_.body.content)
+      .materialize
+      .map {
+        case Success(Ok(userBody: DynamicBody, headers)) ⇒ Ok(DynamicBody(Lst.from(userBody.content)))
+        case Failure(NotFound(_)) ⇒ Ok(DynamicBody(Lst.empty))
+      }
   }
 
   protected def identityFields(obj: Value): Map[String, Value] = {
     obj.toMap.filter(kv ⇒ config.keyFields.contains(kv._1)).toMap
-  }
-
-  protected def getUserByUserId(userId: String)(implicit mcx: MessagingContext): Task[Value] = {
-    hyperbus
-      .ask(ContentGet(hyperStorageUserPath(userId)))
-      .map(_.body.content)
-      .onErrorRecover {
-        case _: NotFound[_] ⇒ Null
-      }
   }
 
   protected def getUsersByIdentityKeys(identityKeys: Map[String, Value])
