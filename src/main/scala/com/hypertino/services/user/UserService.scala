@@ -24,7 +24,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   protected val log = LoggerFactory.getLogger(getClass)
   protected implicit val scheduler = inject[Scheduler]
   protected val hyperbus = inject[Hyperbus]
-  protected val config = UserServiceConfiguration(Map("email" → None))
+  protected val config = UserServiceConfiguration(Map("email" → None, "facebook_user_id" → None))
   protected implicit val so = SerializationOptions.forceOptionalFields
   import so._
   protected val handlers = hyperbus.subscribe(this, log)
