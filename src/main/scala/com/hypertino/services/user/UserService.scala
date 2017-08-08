@@ -149,19 +149,16 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   }
 
   protected def identityFields(obj: Value): Map[String, Value] = {
-    obj.toMap.filter(kv ⇒ config.keyFields.contains(kv._1)).toMap
+    obj.toMap.filter(kv ⇒ config.keyFields.contains(kv._1)).toMap.filterNot(_._2 == Null)
   }
 
   protected def getUsersByIdentityKeys(identityKeys: Map[String, Value])
-                                    (implicit mcx: MessagingContext): Task[Map[String, String]] = {
+                                    (implicit mcx: MessagingContext): Task[List[String]] = {
     Task.gatherUnordered {
       identityKeys.map { case (identityKeyType, identityKey) ⇒
-        getUserByIdentityKey(identityKeyType, identityKey).map {
-          case Some(userId) ⇒ Some(identityKeyType → userId)
-          case None ⇒ None
-        }
+        getUserByIdentityKey(identityKeyType, identityKey)
       }
-    }.map(_.flatten.toMap)
+    }.map(_.flatten.toList)
   }
 
   protected def getUserByIdentityKey(identityKey: (String, Value))
