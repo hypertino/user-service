@@ -4,9 +4,9 @@ import com.hypertino.binders.value.{Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.service.config.ConfigLoader
-import com.hypertino.user.api.UsersPost
+import com.hypertino.user.api.{UserPatch, UsersPost}
 import com.hypertino.user.apiref.authbasic.{EncryptedPassword, EncryptionsPost}
-import com.hypertino.user.apiref.hyperstorage.{ContentGet, ContentPut}
+import com.hypertino.user.apiref.hyperstorage.{ContentDelete, ContentGet, ContentPatch, ContentPut}
 import com.typesafe.config.Config
 import monix.eval.Task
 import monix.execution.Scheduler
@@ -39,6 +39,26 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
     }
   }
 
+  def onContentPatch(implicit request: ContentPatch): Task[ResponseBase] = {
+    hyperStorageContent.get(request.path) match {
+      case Some(v) ⇒
+        hyperStorageContent.put(request.path, v + request.body.content)
+        Task.eval(Ok(EmptyBody))
+
+      case None ⇒
+        Task.eval(NotFound(ErrorBody("not-found")))
+    }
+  }
+
+  def onContentDelete(implicit request: ContentDelete): Task[ResponseBase] = {
+    if (hyperStorageContent.remove(request.path).isDefined) {
+      Task.eval(Ok(EmptyBody))
+    }
+    else {
+      Task.eval(NotFound(ErrorBody("not-found")))
+    }
+  }
+
   def onContentGet(implicit request: ContentGet): Task[ResponseBase] = {
     hyperStorageContent.get(request.path) match {
       case Some(v) ⇒ Task.eval(Ok(DynamicBody(v)))
@@ -64,7 +84,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
     u.body.content.user_id shouldBe a[Text]
   }
 
-  "UserService" should "not create new user with duplicate email" in {
+  it should "not create new user with duplicate email" in {
     hyperbus
       .ask(UsersPost(DynamicBody(Obj.from(
         "email" → "me@example.com",
@@ -83,6 +103,75 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       .futureValue shouldBe a[Conflict[_]]
   }
 
+  it should "patch user" in {
+    val u = hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example2.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .futureValue
+    u shouldBe a[Created[_]]
+    u.body.content.user_id shouldBe a[Text]
+
+    val userId = u.body.content.user_id.toString
+    hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
+      "email" → "me@example2.com", "password" → "654321", "has_password" → true, "user_id" → userId
+    ))
+
+    hyperStorageContent.get(s"user-service/users-by-email/me@example2.com") shouldBe Some(Obj.from(
+      "user_id" → userId
+    ))
+
+    val u2 = hyperbus
+      .ask(UserPatch(userId, DynamicBody(Obj.from(
+        "email" → "me@example3.com",
+        "password" → "abcde"
+      ))))
+      .runAsync
+      .futureValue
+    u2 shouldBe a[NoContent[_]]
+
+    hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
+      "email" → "me@example3.com", "password" → "edcba", "has_password" → true, "user_id" → userId)
+    )
+
+    hyperStorageContent.get(s"user-service/users-by-email/me@example2.com") shouldBe None
+    hyperStorageContent.get(s"user-service/users-by-email/me@example3.com") shouldBe Some(Obj.from(
+      "user_id" → userId
+    ))
+  }
+
+  it should "not create patch user with duplicate email" in {
+    hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+
+    val u = hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example2.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .futureValue
+    u shouldBe a[Created[_]]
+    u.body.content.user_id shouldBe a[Text]
+
+    val userId = u.body.content.user_id.toString
+    val u2 = hyperbus
+      .ask(UserPatch(userId, DynamicBody(Obj.from(
+        "email" → "me@example.com",
+        "password" → "abcde"
+      ))))
+      .runAsync
+      .failed
+      .futureValue shouldBe a[Conflict[_]]
+  }
 
   override def afterAll() {
     service.stopService(false, 10.seconds).futureValue

@@ -2,13 +2,13 @@ package com.hypertino.services.user
 
 import com.hypertino.binders.value.{Lst, Null, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{BadRequest, Conflict, Created, DynamicBody, ErrorBody, HRL, InternalServerError, MessagingContext, NotFound, Ok, ResponseBase}
+import com.hypertino.hyperbus.model.{BadRequest, Conflict, Created, DynamicBody, EmptyBody, ErrorBody, HRL, InternalServerError, MessagingContext, Method, NoContent, NotFound, Ok, RequestBase, ResponseBase}
 import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.service.control.api.Service
 import com.hypertino.user.api.{UserGet, UserPatch, UsersGet, UsersPost}
 import com.hypertino.user.apiref.authbasic.{EncryptionsPost, OriginalPassword}
-import com.hypertino.user.apiref.hyperstorage.{ContentGet, ContentPut}
+import com.hypertino.user.apiref.hyperstorage.{ContentDelete, ContentGet, ContentPatch, ContentPut}
 import monix.eval.Task
 import monix.execution.Scheduler
 import org.slf4j.LoggerFactory
@@ -50,61 +50,13 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     }
   }
 
-  // todo: encrypt password!?!
   def onUsersPost(implicit request: UsersPost): Task[ResponseBase] = {
     if (request.body.content.user_id.isDefined) {
       Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't set user_id explicitly"))))
     }
     else {
-      import com.hypertino.binders.value._
       val iflds = identityFields(request.body.content)
-      getUsersByIdentityKeys(iflds).flatMap { existingUsers ⇒
-        if (existingUsers.nonEmpty) {
-          Task.raiseError(Conflict(ErrorBody("duplicate-identity-keys", Some("There is an existing user with identity keys"), extra = existingUsers.toValue)))
-        }
-        else {
-          // todo: we need here a transaction manager
-          val userId = IdGenerator.create()
-          val userIdBody = DynamicBody(Obj.from("user_id" → userId))
-
-          Task.gatherUnordered {
-            iflds.map { ifld ⇒
-              val path = hyperStorageUserPathByIdentityKey(ifld._1, ifld._2.toString)
-              hyperbus
-                .ask(ContentPut(path, userIdBody))
-                .onErrorRestart(3)
-                .materialize
-                .map((_, ifld, path))
-            }
-          } map { lst ⇒
-            val success = lst.forall(_._1.isSuccess)
-            if (success) {
-              encryptPassword(request.body.content).flatMap { userBody ⇒
-                hyperbus
-                  .ask(ContentPut(hyperStorageUserPath(userId), DynamicBody(userBody + userIdBody.content)))
-                  .onErrorRestart(3)
-                  .materialize
-                  .map {
-                    case Success(Created(_)) ⇒
-                      Created(userIdBody, location=HRL(UserGet.location, Obj.from("user_id" → userId)))
-
-                    case Failure(exception) ⇒
-                      // todo: rollback keys, or use transaction manager
-                      log.error(s"Can't create user '$userId' for $request", exception)
-                      InternalServerError(ErrorBody("db-error", Some("Can't create user")))
-                  }
-              }
-            }
-            else {
-              val errorId = SeqGenerator.create()
-              lst.filter(_._1.isFailure).foreach { s ⇒
-                log.error(s"Can't put $userIdBody to ${s._3} #$errorId", s._1.failed.get)
-              }
-              Task.eval(InternalServerError(ErrorBody("db-error", Some("Can't update user identity keys"), errorId=errorId)))
-            }
-          } flatten
-        }
-      }
+      postOrPatchUser(request, IdGenerator.create(), request.body.content, iflds, Map.empty)
     }
   }
 
@@ -117,11 +69,112 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   }
 
   def onUserPatch(implicit request: UserPatch): Task[ResponseBase] = {
-    //  1. check if exists with the changed identity-key's
-    //  2. insert new identity-key -> user_id
-    //  3. delete old identity-keys
-    //  4. update user
-    ???
+    if (request.body.content.user_id.isDefined && request.body.content.user_id.toString != request.userId) {
+      Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't modify user_id"))))
+    }
+    else {
+      hyperbus
+        .ask(ContentGet(hyperStorageUserPath(request.userId)))
+        .flatMap {
+          case ok @ Ok(_: DynamicBody, _) ⇒
+            val existinUser = ok.body.content
+
+            val existingIflds = identityFields(existinUser)
+            val requestIflds = identityFields(request.body.content)
+            val newIflds = requestIflds.flatMap { case (k,v) ⇒
+              existingIflds.get(k) match {
+                case Some(ev) if ev == v ⇒ None
+                case _ ⇒ Some(k → v)
+              }
+            }
+            val removedIflds = requestIflds.flatMap { case (k,v) ⇒
+              existingIflds.get(k) match {
+                case Some(ev) if ev.isDefined ⇒ Some(k → ev)
+                case _ ⇒ None
+              }
+            }
+
+            postOrPatchUser(request, request.userId, request.body.content, newIflds, removedIflds)
+        }
+    }
+  }
+
+  private def postOrPatchUser(request: RequestBase,
+                              userId: String,
+                              userBody: Value,
+                              newIflds: Map[String, Value],
+                              removedIflds: Map[String, Value]
+                             ): Task[ResponseBase] = {
+    implicit val mcx = request
+    getUsersByIdentityKeys(newIflds).flatMap { existingUsers ⇒
+      if (existingUsers.nonEmpty) {
+        import com.hypertino.binders.value._
+        Task.raiseError(Conflict(ErrorBody("duplicate-identity-keys", Some("There is an existing user with identity keys"), extra = existingUsers.toValue)))
+      }
+      else {
+        val userIdBody = DynamicBody(Obj.from("user_id" → userId))
+
+        Task.gatherUnordered {
+          newIflds.map { ifld ⇒
+            val path = hyperStorageUserPathByIdentityKey(ifld._1, ifld._2.toString)
+            hyperbus
+              .ask(ContentPut(path, userIdBody))
+              .onErrorRestart(3)
+              .materialize
+              .map((_, ifld, path, true))
+          } ++
+            removedIflds.map { ifld ⇒
+              val path = hyperStorageUserPathByIdentityKey(ifld._1, ifld._2.toString)
+              hyperbus
+                .ask(ContentDelete(path))
+                .onErrorRestart(3)
+                .materialize
+                .map((_, ifld, path, false))
+            }
+        } flatMap { lst ⇒
+          val success = lst.forall(_._1.isSuccess)
+          if (success) {
+            encryptPassword(userBody).flatMap { newBody ⇒
+              val resultTask = if (request.headers.method == Method.PATCH) {
+                hyperbus.ask(ContentPatch(hyperStorageUserPath(userId), DynamicBody(newBody)))
+              }
+              else {
+                hyperbus.ask(ContentPut(hyperStorageUserPath(userId), DynamicBody(newBody + userIdBody.content)))
+              }
+              resultTask
+                .onErrorRestart(3)
+                .materialize
+                .map {
+                  case Success(Created(_)) ⇒
+                    Created(userIdBody, location = HRL(UserGet.location, Obj.from("user_id" → userId)))
+
+                  case Success(Ok(_)) ⇒
+                    NoContent(EmptyBody)
+
+                  case Failure(exception) ⇒
+                    // todo: rollback keys, or use transaction manager
+                    val s = if (request.headers.method == Method.PATCH) {
+                      "crate user"
+                    }
+                    else {
+                      "update user"
+                    }
+                    log.error(s"Can't $s '$userId' for $request", exception)
+                    InternalServerError(ErrorBody("db-error", Some(s"Can't $s")))
+                }
+            }
+          }
+          else {
+            val errorId = SeqGenerator.create()
+            lst.filter(_._1.isFailure).foreach { s ⇒
+              val method = if (s._4) "put" else "remove"
+              log.error(s"Can't $method $userIdBody to ${s._3} #$errorId", s._1.failed.get)
+            }
+            Task.eval(InternalServerError(ErrorBody("db-error", Some("Can't update user identity keys"), errorId = errorId)))
+          }
+        }
+      }
+    }
   }
 
   protected def encryptPassword(user: Value)(implicit mcx: MessagingContext): Task[Value] = {
