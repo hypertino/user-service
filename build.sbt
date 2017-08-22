@@ -2,10 +2,10 @@ crossScalaVersions := Seq("2.12.1", "2.11.8")
 
 scalaVersion in Global := "2.11.8"
 
-lazy val `auth-service` = project in file(".") enablePlugins Raml2Hyperbus settings (
+lazy val `user-service` = project in file(".") enablePlugins Raml2Hyperbus settings (
     name := "user-service",
     version := "0.1-SNAPSHOT",
-    organization := "com.hypertino",  
+    organization := "com.hypertino",
     resolvers ++= Seq(
       Resolver.sonatypeRepo("public")
     ),
