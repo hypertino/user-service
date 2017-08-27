@@ -4,13 +4,14 @@ import com.hypertino.binders.value.{Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.service.config.ConfigLoader
-import com.hypertino.user.api.{UserPatch, UsersPost}
+import com.hypertino.user.api.{UpdatedUser, UserPatch, UsersPost}
 import com.hypertino.user.apiref.authbasic.{EncryptedPassword, EncryptionsPost}
 import com.hypertino.user.apiref.hyperstorage.{ContentDelete, ContentGet, ContentPatch, ContentPut}
 import com.typesafe.config.Config
 import monix.eval.Task
 import monix.execution.Scheduler
 import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.time.{Seconds, Span}
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FlatSpec, Matchers}
 import scaldi.Module
 
@@ -18,6 +19,7 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 
 class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with BeforeAndAfterEach with ScalaFutures with Matchers {
+  implicit val patience = PatienceConfig(scaled(Span(60, Seconds)))
   private implicit val scheduler = monix.execution.Scheduler.Implicits.global
   private implicit val mcx = MessagingContext.empty
   bind [Config] to ConfigLoader()
@@ -32,7 +34,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
 
   def onContentPut(implicit request: ContentPut): Task[ResponseBase] = {
     if (hyperStorageContent.put(request.path, request.body.content).isDefined) {
-      Task.eval(NoContent(EmptyBody))
+      Task.eval(Ok(EmptyBody))
     }
     else {
       Task.eval(Created(EmptyBody))
@@ -81,7 +83,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       .runAsync
       .futureValue
     u shouldBe a[Created[_]]
-    u.body.content.user_id shouldBe a[Text]
+    u.body shouldBe a[UpdatedUser]
   }
 
   it should "not create new user with duplicate email" in {
@@ -112,9 +114,9 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       .runAsync
       .futureValue
     u shouldBe a[Created[_]]
-    u.body.content.user_id shouldBe a[Text]
+    u.body shouldBe a[UpdatedUser]
 
-    val userId = u.body.content.user_id.toString
+    val userId = u.body.userId
     hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
       "email" → "me@example2.com", "password" → "654321", "has_password" → true, "user_id" → userId
     ))
@@ -130,7 +132,8 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       ))))
       .runAsync
       .futureValue
-    u2 shouldBe a[NoContent[_]]
+    u2 shouldBe a[Ok[_]]
+    u2.body.userId shouldBe userId
 
     hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
       "email" → "me@example3.com", "password" → "edcba", "has_password" → true, "user_id" → userId)
@@ -160,9 +163,9 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       .runAsync
       .futureValue
     u shouldBe a[Created[_]]
-    u.body.content.user_id shouldBe a[Text]
+    u.body shouldBe a[UpdatedUser]
 
-    val userId = u.body.content.user_id.toString
+    val userId = u.body.userId
     val u2 = hyperbus
       .ask(UserPatch(userId, DynamicBody(Obj.from(
         "email" → "me@example.com",
@@ -171,6 +174,41 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       .runAsync
       .failed
       .futureValue shouldBe a[Conflict[_]]
+  }
+
+  it should "merge user with duplicate email and facebook_user_id" in {
+    val u1 = hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .futureValue
+    u1 shouldBe a[Created[_]]
+    u1.body shouldBe a[UpdatedUser]
+    val userId = u1.body.userId
+
+    val u2 = hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example.com",
+        "facebook_user_id" → "100500"
+      ))))
+      .runAsync
+      .futureValue
+    u2 shouldBe a[Ok[_]]
+    u2.body.userId shouldBe userId
+
+    hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
+      "email" → "me@example.com", "password" → "654321", "has_password" → true, "user_id" → userId, "facebook_user_id" → "100500")
+    )
+
+    hyperStorageContent.get(s"user-service/users-by-email/me@example.com") shouldBe Some(Obj.from(
+      "user_id" → userId
+    ))
+
+    hyperStorageContent.get(s"user-service/users-by-facebook_user_id/100500") shouldBe Some(Obj.from(
+      "user_id" → userId
+    ))
   }
 
   override def afterAll() {
