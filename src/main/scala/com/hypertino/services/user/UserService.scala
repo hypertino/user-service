@@ -134,7 +134,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
                 val removedIflds = requestIflds.flatMap { case (k, v) ⇒
                   existingIflds.get(k) match {
-                    case Some(ev) if ev.isDefined ⇒ Some(k → ev)
+                    case Some(ev) if ev.isDefined && ev != v ⇒ Some(k → ev)
                     case _ ⇒ None
                   }
                 }

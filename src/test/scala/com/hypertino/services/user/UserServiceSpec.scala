@@ -145,6 +145,46 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
     ))
   }
 
+  it should "ignore same-value-fields when patching user" in {
+    val u = hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example2.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .futureValue
+    u shouldBe a[Created[_]]
+    u.body shouldBe a[UpdatedUser]
+
+    val userId = u.body.userId
+    hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
+      "email" → "me@example2.com", "password" → "654321", "has_password" → true, "user_id" → userId
+    ))
+
+    hyperStorageContent.get(s"user-service/users-by-email/me@example2.com") shouldBe Some(Obj.from(
+      "user_id" → userId
+    ))
+
+    val u2 = hyperbus
+      .ask(UserPatch(userId, DynamicBody(Obj.from(
+        "email" → "me@example2.com",
+        "password" → "abcde",
+        "first_name" → "Yey"
+      ))))
+      .runAsync
+      .futureValue
+    u2 shouldBe a[Ok[_]]
+    u2.body.userId shouldBe userId
+
+    hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
+      "email" → "me@example2.com", "password" → "edcba", "has_password" → true, "user_id" → userId, "first_name" → "Yey")
+    )
+
+    hyperStorageContent.get(s"user-service/users-by-email/me@example2.com") shouldBe Some(Obj.from(
+      "user_id" → userId
+    ))
+  }
+
   it should "not create patch user with duplicate email" in {
     hyperbus
       .ask(UsersPost(DynamicBody(Obj.from(
