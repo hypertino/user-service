@@ -3,6 +3,7 @@ package com.hypertino.services.user
 import com.hypertino.binders.value.{Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
+import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.service.config.ConfigLoader
 import com.hypertino.user.api.{UpdatedUser, UserPatch, UsersPost}
 import com.hypertino.user.apiref.authbasic.{EncryptedPassword, EncryptionsPost}
@@ -18,7 +19,7 @@ import scaldi.Module
 import scala.collection.mutable
 import scala.concurrent.duration._
 
-class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with BeforeAndAfterEach with ScalaFutures with Matchers {
+class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with BeforeAndAfterEach with ScalaFutures with Matchers with Subscribable {
   implicit val patience = PatienceConfig(scaled(Span(60, Seconds)))
   private implicit val scheduler = monix.execution.Scheduler.Implicits.global
   private implicit val mcx = MessagingContext.empty

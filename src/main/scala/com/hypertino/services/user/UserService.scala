@@ -4,6 +4,7 @@ import com.hypertino.binders.value.{Lst, Null, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{BadRequest, Conflict, Created, DynamicBody, EmptyBody, ErrorBody, HRL, InternalServerError, MessagingContext, Method, NoContent, NotFound, Ok, RequestBase, ResponseBase}
 import com.hypertino.hyperbus.serialization.SerializationOptions
+import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.service.control.api.Service
 import com.hypertino.user.api._
@@ -20,7 +21,7 @@ import scala.util.{Failure, Success}
 
 case class UserServiceConfiguration(keyFields: Map[String, Option[String]], autoMergeUserForKeyFields: Set[String])
 
-class UserService (implicit val injector: Injector) extends Service with Injectable {
+class UserService (implicit val injector: Injector) extends Service with Injectable with Subscribable {
   protected val log = LoggerFactory.getLogger(getClass)
   protected implicit val scheduler = inject[Scheduler]
   protected val hyperbus = inject[Hyperbus]
