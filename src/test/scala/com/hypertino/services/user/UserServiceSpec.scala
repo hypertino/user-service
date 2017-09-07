@@ -34,7 +34,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
   val hyperStorageContent = mutable.Map[String, Value]()
 
   def onContentPut(implicit request: ContentPut): Task[ResponseBase] = {
-    if (hyperStorageContent.put(request.path, request.body.content).isDefined) {
+    if (hyperStorageContent.put(request.path, Value.removeNullFields(request.body.content)).isDefined) {
       Task.eval(Ok(EmptyBody))
     }
     else {
@@ -45,7 +45,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
   def onContentPatch(implicit request: ContentPatch): Task[ResponseBase] = {
     hyperStorageContent.get(request.path) match {
       case Some(v) ⇒
-        hyperStorageContent.put(request.path, v + request.body.content)
+        hyperStorageContent.put(request.path, Value.removeNullFields(v % request.body.content))
         Task.eval(Ok(EmptyBody))
 
       case None ⇒
@@ -129,7 +129,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
     val u2 = hyperbus
       .ask(UserPatch(userId, DynamicBody(Obj.from(
         "email" → "me@example3.com",
-        "password" → "abcde"
+        "password" → Null
       ))))
       .runAsync
       .futureValue
@@ -137,7 +137,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
     u2.body.userId shouldBe userId
 
     hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
-      "email" → "me@example3.com", "password" → "edcba", "has_password" → true, "user_id" → userId)
+      "email" → "me@example3.com", "has_password" → false, "user_id" → userId)
     )
 
     hyperStorageContent.get(s"user-service/users-by-email/me@example2.com") shouldBe None
@@ -270,8 +270,10 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
 
     val u2 = hyperbus
       .ask(UsersPost(DynamicBody(Obj.from(
+        "user_id" → Null,
         "email" → "me@example.com",
-        "facebook_user_id" → "100500"
+        "facebook_user_id" → "100500",
+        "password" → Null
       ))))
       .runAsync
       .futureValue

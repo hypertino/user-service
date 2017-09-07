@@ -82,7 +82,8 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
                         true
                     }
                   }) {
-                    postOrPatchUser(UserPatch(userId, request.body), userId, request.body.content, iflds, Map.empty)
+                    val bodyWithoutNulls = Value.removeNullFields(request.body.content)
+                    postOrPatchUser(UserPatch(userId, request.body), userId, bodyWithoutNulls, iflds, Map.empty)
                   }
                   else {
                     Task.raiseError(duplicateError(existingUsers))
@@ -233,7 +234,12 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
         }
     }
     else Task.eval {
-      user
+      if (Obj.hasPath(user.asInstanceOf[Obj], Seq("password")) && user.password.isNull) {
+        user % Obj.from("has_password" → false)
+      }
+      else {
+        user
+      }
     }
   }
 
