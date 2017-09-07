@@ -109,7 +109,8 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   }
 
   def onUserPatch(implicit request: UserPatch): Task[ResponseBase] = {
-    if (request.body.content.user_id.isDefined && request.body.content.user_id.toString != request.userId) {
+    if (Obj.hasPath(request.body.content.asInstanceOf[Obj], Seq("user_id")) &&
+      request.body.content.user_id.toString != request.userId) {
       Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't modify user_id"))))
     }
     else {
@@ -186,7 +187,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
             hyperbus.ask(ContentPatch(hyperStorageUserPath(userId), DynamicBody(newBody)))
           }
           else {
-            hyperbus.ask(ContentPut(hyperStorageUserPath(userId), DynamicBody(newBody + userIdBody.content)))
+            hyperbus.ask(ContentPut(hyperStorageUserPath(userId), DynamicBody(newBody % userIdBody.content)))
           }
           resultTask
             .onErrorRestart(3)

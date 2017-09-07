@@ -1,8 +1,8 @@
 package com.hypertino.services.user
 
-import com.hypertino.binders.value.{Obj, Text, Value}
+import com.hypertino.binders.value.{Null, Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
+import com.hypertino.hyperbus.model.{BadRequest, Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.service.config.ConfigLoader
 import com.hypertino.user.api.{UpdatedUser, UserPatch, UsersPost}
@@ -215,6 +215,45 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       .runAsync
       .failed
       .futureValue shouldBe a[Conflict[_]]
+  }
+
+  it should "not allow patch if user_id is set to null or different value from the original" in {
+    val u = hyperbus
+      .ask(UsersPost(DynamicBody(Obj.from(
+        "email" → "me@example2.com",
+        "password" → "123456"
+      ))))
+      .runAsync
+      .futureValue
+    u shouldBe a[Created[_]]
+    u.body shouldBe a[UpdatedUser]
+
+    val userId = u.body.userId
+    hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
+      "email" → "me@example2.com", "password" → "654321", "has_password" → true, "user_id" → userId
+    ))
+
+    val u2 = hyperbus
+      .ask(UserPatch(userId, DynamicBody(Obj.from(
+        "user_id" → Null
+      ))))
+      .runAsync
+      .failed
+      .futureValue
+    u2 shouldBe a[BadRequest[_]]
+
+    val u3 = hyperbus
+      .ask(UserPatch(userId, DynamicBody(Obj.from(
+        "user_id" → "0"
+      ))))
+      .runAsync
+      .failed
+      .futureValue
+    u3 shouldBe a[BadRequest[_]]
+
+    hyperStorageContent.get(s"user-service/users/$userId") shouldBe Some(Obj.from(
+      "email" → "me@example2.com", "password" → "654321", "has_password" → true, "user_id" → userId)
+    )
   }
 
   it should "merge user with duplicate email and facebook_user_id" in {
