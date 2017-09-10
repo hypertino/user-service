@@ -12,7 +12,7 @@ import com.hypertino.user.apiref.authbasic.{EncryptionsPost, OriginalPassword}
 import com.hypertino.user.apiref.hyperstorage.{ContentDelete, ContentGet, ContentPatch, ContentPut}
 import monix.eval.Task
 import monix.execution.Scheduler
-import org.slf4j.LoggerFactory
+import com.typesafe.scalalogging.StrictLogging
 import scaldi.{Injectable, Injector}
 
 import scala.concurrent.Future
@@ -21,8 +21,7 @@ import scala.util.{Failure, Success}
 
 case class UserServiceConfiguration(keyFields: Map[String, Option[String]], autoMergeUserForKeyFields: Set[String])
 
-class UserService (implicit val injector: Injector) extends Service with Injectable with Subscribable {
-  protected val log = LoggerFactory.getLogger(getClass)
+class UserService (implicit val injector: Injector) extends Service with Injectable with Subscribable with StrictLogging {
   protected implicit val scheduler = inject[Scheduler]
   protected val hyperbus = inject[Hyperbus]
   protected val config = UserServiceConfiguration(Map("email" → None, "facebook_user_id" → None), Set("facebook_user_id"))
@@ -30,10 +29,10 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
   import so._
 
-  protected val handlers = hyperbus.subscribe(this, log)
+  protected val handlers = hyperbus.subscribe(this, logger)
   protected final val USER_COLLECTION_BODY_TYPE = "user-collection"
 
-  log.info("UserService started")
+  logger.info("UserService started")
 
   def onUsersGet(implicit request: UsersGet): Task[ResponseBase] = {
     if (request.headers.hrl.query.user_id.isDefined) {
@@ -208,7 +207,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
                 else {
                   "update user"
                 }
-                log.error(s"Can't $s '$userId' for $request", exception)
+                logger.error(s"Can't $s '$userId' for $request", exception)
                 InternalServerError(ErrorBody("db-error", Some(s"Can't $s")))
             }
         }
@@ -217,7 +216,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
         val errorId = SeqGenerator.create()
         lst.filter(_._1.isFailure).foreach { s ⇒
           val method = if (s._4) "put" else "remove"
-          log.error(s"Can't $method $userIdBody to ${s._3} #$errorId", s._1.failed.get)
+          logger.error(s"Can't $method $userIdBody to ${s._3} #$errorId", s._1.failed.get)
         }
         Task.eval(InternalServerError(ErrorBody("db-error", Some("Can't update user identity keys"), errorId = errorId)))
       }
@@ -286,6 +285,6 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = Future {
     handlers.foreach(_.cancel())
-    log.info("UserService stopped")
+    logger.info("UserService stopped")
   }
 }
