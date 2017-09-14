@@ -229,7 +229,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       hyperbus
         .ask(EncryptionsPost(OriginalPassword(user.password.toString)))
         .map{ response ⇒
-          user + Obj.from("password" → response.body.value, "has_password" → true)
+          user % Obj.from("password" → response.body.value, "has_password" → true)
         }
     }
     else Task.eval {
