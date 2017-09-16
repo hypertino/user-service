@@ -248,9 +248,11 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       .map(_.body.content)
       .materialize
       .map {
-        case Success(user) ⇒ Ok(DynamicBody(Lst.from(user), contentType=Some(USER_COLLECTION_BODY_TYPE)))
-        case Failure(NotFound(_)) ⇒ Ok(DynamicBody(Lst.empty, contentType=Some(USER_COLLECTION_BODY_TYPE)))
+        case Success(user) ⇒ Success(Ok(DynamicBody(Lst.from(user), contentType=Some(USER_COLLECTION_BODY_TYPE))))
+        case Failure(NotFound(_)) ⇒ Success(Ok(DynamicBody(Lst.empty, contentType=Some(USER_COLLECTION_BODY_TYPE))))
+        case Failure(other) ⇒ Failure(other)
       }
+      .dematerialize
   }
 
   protected def identityFields(obj: Value): Map[String, Value] = {
