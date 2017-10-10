@@ -19,12 +19,13 @@ import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 import scala.util.{Failure, Success}
 
-case class UserServiceConfiguration(keyFields: Map[String, Option[String]], autoMergeUserForKeyFields: Set[String])
+case class KeyFieldOptions(autoMerge: Boolean, ignoreCase: Boolean)
+case class UserServiceConfiguration(keyFields: Map[String, KeyFieldOptions])
 
 class UserService (implicit val injector: Injector) extends Service with Injectable with Subscribable with StrictLogging {
   protected implicit val scheduler = inject[Scheduler]
   protected val hyperbus = inject[Hyperbus]
-  protected val config = UserServiceConfiguration(Map("email" → None, "facebook_user_id" → None), Set("facebook_user_id"))
+  protected val config = UserServiceConfiguration(Map("email" → KeyFieldOptions(false, true), "facebook_user_id" → KeyFieldOptions(true, true)))
   protected implicit val so = SerializationOptions.forceOptionalFields
 
   import so._
@@ -62,7 +63,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
       getUsersByIdentityKeys(iflds).flatMap { existingUsers ⇒
 
         if (existingUsers.nonEmpty) {
-          if (iflds.exists(f ⇒ config.autoMergeUserForKeyFields.contains(f._1))
+          if (iflds.exists(f ⇒ config.keyFields.get(f._1).exists(_.autoMerge))
             && existingUsers.size == 1
             && !iflds.contains("user_id")
           ) {
@@ -283,7 +284,10 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
   protected def hyperStorageUserPath(userId: String): String = s"user-service/users/$userId"
 
-  protected def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = s"user-service/users-by-$identityType/$identityKey"
+  protected def hyperStorageUserPathByIdentityKey(identityType: String, identityKey: String): String = {
+    val key = if (config.keyFields.get(identityType).exists(_.ignoreCase)) identityKey.toLowerCase() else identityKey
+    s"user-service/users-by-$identityType/$key"
+  }
 
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = Future {
     handlers.foreach(_.cancel())
