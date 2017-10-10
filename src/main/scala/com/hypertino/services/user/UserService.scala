@@ -33,7 +33,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   protected val handlers = hyperbus.subscribe(this, logger)
   protected final val USER_COLLECTION_BODY_TYPE = "user-collection"
 
-  logger.info("UserService started")
+  logger.info(s"${getClass.getName} is STARTED")
 
   def onUsersGet(implicit request: UsersGet): Task[ResponseBase] = {
     if (request.headers.hrl.query.user_id.isDefined) {
@@ -291,6 +291,6 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = Future {
     handlers.foreach(_.cancel())
-    logger.info("UserService stopped")
+    logger.info(s"${getClass.getName} is STOPPED")
   }
 }
