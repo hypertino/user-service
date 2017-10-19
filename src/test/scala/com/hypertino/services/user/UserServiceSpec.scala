@@ -4,6 +4,8 @@ import com.hypertino.binders.value.{Null, Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{BadRequest, Conflict, Created, DynamicBody, EmptyBody, ErrorBody, MessagingContext, NoContent, NotFound, Ok, ResponseBase}
 import com.hypertino.hyperbus.subscribe.Subscribable
+import com.hypertino.hyperbus.transport.api.ServiceRegistrator
+import com.hypertino.hyperbus.transport.registrators.DummyRegistrator
 import com.hypertino.service.config.ConfigLoader
 import com.hypertino.user.api.{UpdatedUser, UserPatch, UsersPost}
 import com.hypertino.user.apiref.authbasic.{EncryptedPassword, EncryptionsPost}
@@ -24,8 +26,9 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
   private implicit val scheduler = monix.execution.Scheduler.Implicits.global
   private implicit val mcx = MessagingContext.empty
   bind [Config] to ConfigLoader()
-  bind [Scheduler] identifiedBy 'scheduler to scheduler
-  bind [Hyperbus] identifiedBy 'hyperbus to injected[Hyperbus]
+  bind [Scheduler] to scheduler
+  bind [Hyperbus] to injected[Hyperbus]
+  bind [ServiceRegistrator] to DummyRegistrator
 
   private val hyperbus = inject[Hyperbus]
   private val handlers = hyperbus.subscribe(this)

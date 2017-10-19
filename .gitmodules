@@ -7,3 +7,6 @@
 [submodule "api/auth-basic-service-api"]
 	path = api/auth-basic-service-api
 	url = git@github.com:hypertino/auth-basic-service-api.git
+[submodule "travis"]
+	path = travis
+	url = git@github.com:hypertino/scala-travis-script.git

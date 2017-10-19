@@ -36,8 +36,8 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   logger.info(s"${getClass.getName} is STARTED")
 
   def onUsersGet(implicit request: UsersGet): Task[ResponseBase] = {
-    if (request.headers.hrl.query.user_id.isDefined) {
-      wrapIntoCollection(request.headers.hrl.query.user_id.toString)
+    if (request.headers.hrl.query.dynamic.user_id.isDefined) {
+      wrapIntoCollection(request.headers.hrl.query.dynamic.user_id.toString)
     } else {
       identityFields(request.headers.hrl.query)
         .headOption
@@ -54,7 +54,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   }
 
   def onUsersPost(implicit request: UsersPost): Task[ResponseBase] = {
-    if (request.body.content.user_id.isDefined) {
+    if (request.body.content.dynamic.user_id.isDefined) {
       Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't set user_id explicitly"))))
     }
     else {
@@ -111,7 +111,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
   def onUserPatch(implicit request: UserPatch): Task[ResponseBase] = {
     if (Obj.hasPath(request.body.content.asInstanceOf[Obj], Seq("user_id")) &&
-      request.body.content.user_id.toString != request.userId) {
+      request.body.content.dynamic.user_id.toString != request.userId) {
       Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't modify user_id"))))
     }
     else {
@@ -226,15 +226,15 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
 
   protected def encryptPassword(user: Value)(implicit mcx: MessagingContext): Task[Value] = {
-    if (user.password.isDefined) {
+    if (user.dynamic.password.isDefined) {
       hyperbus
-        .ask(EncryptionsPost(OriginalPassword(user.password.toString)))
+        .ask(EncryptionsPost(OriginalPassword(user.dynamic.password.toString)))
         .map{ response ⇒
           user % Obj.from("password" → response.body.value, "has_password" → true)
         }
     }
     else Task.eval {
-      if (Obj.hasPath(user.asInstanceOf[Obj], Seq("password")) && user.password.isNull) {
+      if (Obj.hasPath(user.asInstanceOf[Obj], Seq("password")) && user.dynamic.password.isNull) {
         user % Obj.from("has_password" → false)
       }
       else {
@@ -274,7 +274,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
     hyperbus
       .ask(ContentGet(hyperStorageUserPathByIdentityKey(identityKey._1, identityKey._2.toString)))
       .map { ok ⇒
-        Some(ok.body.content.user_id.toString)
+        Some(ok.body.content.dynamic.user_id.toString)
       }
       .onErrorRecover {
         case _: NotFound[_] ⇒
