@@ -52,7 +52,7 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
         Task.eval(Ok(EmptyBody))
 
       case None ⇒
-        Task.eval(NotFound(ErrorBody("not-found")))
+        Task.eval(NotFound())
     }
   }
 
@@ -61,14 +61,14 @@ class UserServiceSpec extends FlatSpec with Module with BeforeAndAfterAll with B
       Task.eval(Ok(EmptyBody))
     }
     else {
-      Task.eval(NotFound(ErrorBody("not-found")))
+      Task.eval(NotFound())
     }
   }
 
   def onContentGet(implicit request: ContentGet): Task[ResponseBase] = {
     hyperStorageContent.get(request.path) match {
       case Some(v) ⇒ Task.eval(Ok(DynamicBody(v)))
-      case None ⇒ Task.eval(NotFound(ErrorBody("not-found", Some(request.path))))
+      case None ⇒ Task.eval(NotFound())
     }
   }
 

@@ -7,6 +7,7 @@ import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.service.control.api.Service
+import com.hypertino.services.user.utils.ErrorCode
 import com.hypertino.user.api._
 import com.hypertino.user.apiref.authbasic.{EncryptionsPost, OriginalPassword}
 import com.hypertino.user.apiref.hyperstorage.{ContentDelete, ContentGet, ContentPatch, ContentPut}
@@ -48,14 +49,14 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
           }
         }
         .getOrElse {
-          Task.eval(NotFound(ErrorBody("identity-key-not-specified", Some("Can't lookup all users"))))
+          Task.eval(NotFound(ErrorBody(ErrorCode.IDENTITY_KEY_NOT_SPECIFIED, Some("Can't lookup all users"))))
         }
     }
   }
 
   def onUsersPost(implicit request: UsersPost): Task[ResponseBase] = {
     if (request.body.content.dynamic.user_id.isDefined) {
-      Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't set user_id explicitly"))))
+      Task.raiseError(BadRequest(ErrorBody(ErrorCode.USER_ID_IS_PROTECTED, Some("You can't set user_id explicitly"))))
     }
     else {
       val iflds = identityFields(request.body.content)
@@ -112,7 +113,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
   def onUserPatch(implicit request: UserPatch): Task[ResponseBase] = {
     if (Obj.hasPath(request.body.content.asInstanceOf[Obj], Seq("user_id")) &&
       request.body.content.dynamic.user_id.toString != request.userId) {
-      Task.raiseError(BadRequest(ErrorBody("user-id-prohibited", Some("You can't modify user_id"))))
+      Task.raiseError(BadRequest(ErrorBody(ErrorCode.USER_ID_IS_PROTECTED, Some("You can't modify user_id"))))
     }
     else {
       hyperbus
@@ -151,7 +152,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
 
   protected def duplicateError(existingUsers: List[String])(implicit mcx: MessagingContext) = {
     import com.hypertino.binders.value._
-    Conflict(ErrorBody("duplicate-identity-keys", Some("There is an existing user with identity keys"), extra = existingUsers.toValue))
+    Conflict(ErrorBody(ErrorCode.DUPLICATE_IDENTITY_KEYS, Some("There is an existing user with identity keys"), extra = existingUsers.toValue))
   }
 
   protected def postOrPatchUser(request: RequestBase,
@@ -209,7 +210,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
                   "update user"
                 }
                 logger.error(s"Can't $s '$userId' for $request", exception)
-                InternalServerError(ErrorBody("db-error", Some(s"Can't $s")))
+                InternalServerError(ErrorBody(ErrorCode.DB_ERROR, Some(s"Can't $s")))
             }
         }
       }
@@ -219,7 +220,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
           val method = if (s._4) "put" else "remove"
           logger.error(s"Can't $method $userIdBody to ${s._3} #$errorId", s._1.failed.get)
         }
-        Task.eval(InternalServerError(ErrorBody("db-error", Some("Can't update user identity keys"), errorId = errorId)))
+        Task.eval(InternalServerError(ErrorBody(ErrorCode.DB_ERROR, Some("Can't update user identity keys"), errorId = errorId)))
       }
     }
   }
