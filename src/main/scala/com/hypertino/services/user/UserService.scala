@@ -204,7 +204,7 @@ class UserService (implicit val injector: Injector) extends Service with Injecta
               case Failure(exception) ⇒
                 // todo: rollback keys, or use transaction manager
                 val s = if (request.headers.method == Method.PATCH) {
-                  "crate user"
+                  "create user"
                 }
                 else {
                   "update user"
